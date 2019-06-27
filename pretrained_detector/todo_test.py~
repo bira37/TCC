@@ -1,0 +1,110 @@
+import numpy as np
+import cv2
+import os
+import tensorflow as tf
+from network import Network
+from data_manager import DataManager
+import matplotlib.pyplot as plt
+from scipy.interpolate import spline
+import cvlib
+
+""" Returns the cropped face """
+def resize_image(img, y):
+  y[0] *= 128/img.shape[1]
+  y[1] *= 128/img.shape[0]
+  y[2] *= 128/img.shape[1]
+  y[3] *= 128/img.shape[0]
+  img = cv2.resize(img, (128,128))
+  return img, y
+
+""" Plots graph and save as png """
+def plot_graph(l):
+  plot_data = []
+  for x in l:
+    if len(plot_data) > 0 and plot_data[-1][0] == x:
+      plot_data[-1][1] += 1
+    else:
+      plot_data.append([x,1])
+  
+  x_g = []
+  y_g = []
+  accumulator = 0
+  for i in range(len(plot_data)):
+    x_g.append(plot_data[i][0])
+    y_g.append(len(l) - accumulator)
+    accumulator += plot_data[i][1]
+  
+  plt.plot(x_g,y_g)
+    
+def main():
+  data = DataManager()
+  data.load_data(path = '../database/test', data_type = 'test')
+  net = Network(data.WIDTH, data.HEIGHT, data.CHANNELS)
+  net.restore_model('model')
+  X,Y = data.get_test()
+  i = 0
+  iou_list = []
+  precision_list = []
+  recall_list = []
+  accuracy_list = []
+  f1score_list = []
+  for img, landmarks in zip(X,Y):
+    print('predicting image ' + str(i))
+    x = img
+    y = data.get_box(landmarks, width = x.shape[1], height = x.shape[0])
+    x, y = resize_image(img, y)
+
+    x_pred = data.normalize_img(x)
+    y_ = net.predict(np.reshape(x_pred, (1, 128,128,3)))
+    y_ = data.original_box(y_[0])
+    metrics = data.calculate_metrics(y_, y)
+    iou_list.append(metrics[0])
+    accuracy_list.append(metrics[1])
+    precision_list.append(metrics[2])
+    recall_list.append(metrics[3])
+    f1score_list.append(metrics[4])
+    cv2.rectangle(x, (int(y_[0]), int(y_[1])), (int(y_[2]), int(y_[3])), (255,0,0))
+    cv2.rectangle(x, (int(y[0]), int(y[1])), (int(y[2]), int(y[3])), (255,255,0))
+    cv2.imwrite('test_predictions/out' + str(i) + '.png', x)
+    i += 1
+  
+  iou_list = np.array(iou_list)
+  accuracy_list = np.array(accuracy_list)
+  precision_list = np.array(precision_list)
+  recall_list = np.array(recall_list)
+  f1score_list = np.array(f1score_list)
+  
+  iou_mean = np.mean(iou_list, dtype=np.float64)
+  iou_std =  np.std(iou_list, dtype=np.float64)
+  accuracy_mean = np.mean(accuracy_list, dtype=np.float64)
+  accuracy_std =  np.std(accuracy_list, dtype=np.float64)
+  precision_mean = np.mean(precision_list, dtype=np.float64)
+  precision_std =  np.std(precision_list, dtype=np.float64)
+  recall_mean = np.mean(recall_list, dtype=np.float64)
+  recall_std =  np.std(recall_list, dtype=np.float64)
+  f1score_mean = np.mean(f1score_list, dtype=np.float64)
+  f1score_std =  np.std(f1score_list, dtype=np.float64)
+   
+  results_file = open('results.txt', 'w')
+  results_file.write('IoU = ' + str(iou_mean) + ' ± ' + str(iou_std) + '\n')
+  results_file.write('Accuracy = ' + str(accuracy_mean) + ' ± ' + str(accuracy_std) + '\n')
+  results_file.write('Precision = ' + str(precision_mean) + ' ± ' + str(precision_std) + '\n')
+  results_file.write('Recall = ' + str(recall_mean) + ' ± ' + str(recall_std) + '\n')
+  results_file.write('F1 Score = ' + str(f1score_mean) + ' ± ' + str(f1score_std) + '\n')
+  results_file.close()  
+  iou_list.sort()
+  accuracy_list.sort()
+  precision_list.sort()
+  recall_list.sort()
+  f1score_list.sort()
+  plot_graph(iou_list)
+  plot_graph(accuracy_list)
+  plot_graph(precision_list)
+  plot_graph(recall_list) 
+  plot_graph(f1score_list)
+  plt.legend(['IoU', 'Accuracy', 'Precision', 'Recall', 'F1 Score'], loc='lower left')
+  plt.savefig('Graph.png')        
+if __name__== '__main__':
+  main() 
+
+
